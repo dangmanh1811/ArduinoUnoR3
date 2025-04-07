@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Face Recognition Access Control</title>
+    <style>
+      /* Base styles */
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        background: #121212;
+        color: #efefef;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+      }
+
+      /* Containers */
+      #content-left,
+      #content-right {
+        max-width: 400px;
+        margin: 10px;
+      }
+
+      /* Stream image styling */
+      #stream {
+        width: 100%;
+        border-radius: 8px;
+        box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.7);
+      }
+
+      /* Status display styling */
+      #status-display {
+        font-size: 18px;
+        text-align: center;
+        padding: 12px;
+        border-radius: 5px;
+        background-color: #282828;
+        margin-bottom: 15px;
+        transition: background-color 0.3s ease;
+      }
+
+      /* Input styling */
+      #person {
+        width: 100%;
+        padding: 12px;
+        font-size: 16px;
+        border-radius: 5px;
+        border: none;
+        background-color: #1f1f1f;
+        color: #ffffff;
+        margin-bottom: 15px;
+        box-sizing: border-box;
+      }
+
+      /* Button styling */
+      .buttons {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      button {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 5px;
+        background-color: #ff5252;
+        color: #ffffff;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      button:hover {
+        background-color: #ff7979;
+      }
+
+      button:disabled {
+        background-color: #555555;
+        cursor: not-allowed;
+      }
+
+      /* Face list styling */
+      ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      li {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #333333;
+      }
+
+      .delete {
+        background: #ff5252;
+        padding: 0 8px;
+        border-radius: 50%;
+        color: #ffffff;
+        cursor: pointer;
+        transition: background 0.3s ease;
+      }
+
+      .delete:hover {
+        background-color: #ff7979;
+      }
+
+      /* Responsive layout */
+      @media (min-width: 850px) {
+        body {
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="content-left">
+      <div id="stream-container" class="image-container">
+        <img id="stream" src="" />
+      </div>
+    </div>
+    <div id="content-right">
+      <div id="status-display">
+        <span id="current-status">Status: Ready</span>
+      </div>
+      <input id="person" type="text" placeholder="Enter person's name" />
+      <div class="buttons">
+        <button id="button-stream">Stream Camera</button>
+        <button id="button-detect">Detect Faces</button>
+      </div>
+      <div class="buttons">
+        <button id="button-capture" disabled>Add User</button>
+        <button id="button-recognise">Access Control</button>
+      </div>
+      <h3>Captured Faces</h3>
+      <ul id="face-list"></ul>
+      <div class="buttons">
+        <button id="delete_all">Delete All</button>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const baseHost = document.location.origin;
+        const WS_URL = "ws://" + window.location.host + ":82";
+        const ws = new WebSocket(WS_URL);
+
+        const view = document.getElementById("stream");
+        const personInput = document.getElementById("person");
+        const streamButton = document.getElementById("button-stream");
+        const detectButton = document.getElementById("button-detect");
+        const captureButton = document.getElementById("button-capture");
+        const recogniseButton = document.getElementById("button-recognise");
+        const deleteAllButton = document.getElementById("delete_all");
+        const statusDisplay = document.getElementById("current-status");
+        const faceList = document.getElementById("face-list");
+
+        ws.onopen = () => updateStatus("Connected", "#28a745");
+        ws.onmessage = (message) => handleWSMessage(message);
+
+        streamButton.onclick = () => ws.send("stream");
+        detectButton.onclick = () => ws.send("detect");
+        captureButton.onclick = () => {
+          const personName = personInput.value.trim();
+          if (personName) ws.send("capture:" + personName);
+        };
+        recogniseButton.onclick = () => ws.send("recognise");
+        deleteAllButton.onclick = () => ws.send("delete_all");
+
+        personInput.addEventListener("input", () => {
+          captureButton.disabled = !personInput.value.trim();
+        });
+
+        function handleWSMessage(message) {
+          if (typeof message.data === "string") {
+            if (message.data.startsWith("listface")) {
+              addFaceToScreen(message.data.slice(9));
+            } else if (message.data === "delete_faces") {
+              clearFaceList();
+            } else if (message.data === "door_open") {
+              playAlertSound();
+              updateStatus("Access Granted", "#28a745");
+            } else {
+              updateStatus(message.data, "#282828");
+            }
+          } else if (message.data instanceof Blob) {
+            view.src = URL.createObjectURL(message.data);
+          }
+        }
+
+        function playAlertSound() {
+          const audioCtx = new (window.AudioContext ||
+            window.webkitAudioContext)();
+          const osc = audioCtx.createOscillator();
+          osc.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function addFaceToScreen(personName) {
+          const listItem = document.createElement("li");
+          listItem.innerHTML = `<strong>${personName}</strong><span class="delete" onclick="removeFace('${personName}')">X</span>`;
+          faceList.appendChild(listItem);
+        }
+
+        function clearFaceList() {
+          faceList.innerHTML = "";
+          personInput.value = "";
+          captureButton.disabled = true;
+        }
+
+        function updateStatus(message, color) {
+          statusDisplay.textContent = message;
+          statusDisplay.style.backgroundColor = color;
+        }
+
+        window.removeFace = function (personName) {
+          ws.send("remove:" + personName);
+        };
+      });
+    </script>
+  </body>
+</html>
